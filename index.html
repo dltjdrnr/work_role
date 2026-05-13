@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>ICT 문의</title>
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  margin: 40px;
+}
+
+textarea {
+  width: 700px;
+  height: 120px;
+  font-size: 16px;
+}
+
+button {
+  margin-top: 12px;
+  padding: 10px 20px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+#previewArea {
+  margin-top: 15px;
+}
+
+.preview-img {
+  max-width: 400px;
+  border: 1px solid #ccc;
+  margin-top: 10px;
+}
+
+#response {
+  margin-top: 30px;
+  white-space: pre-wrap;
+  border-top: 1px solid #ddd;
+  padding-top: 20px;
+}
+</style>
+</head>
+
+<body>
+
+<h1>ICT 문의</h1>
+
+<div>
+
+<textarea
+  id="queryInput"
+  placeholder="문의 내용을 입력하세요. 캡처 이미지는 Ctrl+V로 붙여넣을 수 있습니다."
+></textarea>
+
+<div id="previewArea"></div>
+
+<br><br>
+
+<input
+  type="file"
+  id="fileInput"
+  accept="image/*"
+>
+
+<br>
+
+<button
+  id="sendBtn"
+  type="button"
+>
+문의하기
+</button>
+
+</div>
+
+<h2>답변</h2>
+
+<div id="response"></div>
+
+<script>
+
+let attachedFiles = [];
+
+const queryInput =
+  document.getElementById("queryInput");
+
+const fileInput =
+  document.getElementById("fileInput");
+
+const previewArea =
+  document.getElementById("previewArea");
+
+const responseBox =
+  document.getElementById("response");
+
+/*
+────────────────────────────
+파일 추가 함수
+────────────────────────────
+*/
+function addFile(file) {
+
+  attachedFiles.push({ file });
+
+  const img =
+    document.createElement("img");
+
+  img.src =
+    URL.createObjectURL(file);
+
+  img.className =
+    "preview-img";
+
+  previewArea.appendChild(img);
+
+}
+
+/*
+────────────────────────────
+Ctrl + V 이미지 붙여넣기
+────────────────────────────
+*/
+document.addEventListener(
+  "paste",
+  function (event) {
+
+    const items =
+      event.clipboardData.items;
+
+    for (const item of items) {
+
+      if (
+        item.type.indexOf("image")
+        !== -1
+      ) {
+
+        const file =
+          item.getAsFile();
+
+        const renamedFile =
+          new File(
+            [file],
+            `paste_${Date.now()}.png`,
+            {
+              type: file.type
+            }
+          );
+
+        addFile(renamedFile);
+
+        console.log(
+          "붙여넣기 이미지 추가:",
+          renamedFile
+        );
+
+        event.preventDefault();
+
+      }
+
+    }
+
+});
+/*
+────────────────────────────
+파일 선택 업로드
+────────────────────────────
+*/
+fileInput.addEventListener(
+  "change",
+  function () {
+
+    const file =
+      fileInput.files[0];
+
+    if (file) {
+
+      addFile(file);
+
+    }
+
+});
+/*
+────────────────────────────
+Node.js 프록시 호출
+────────────────────────────
+*/
+async function sendToDifyProxy(
+  query,
+  currentFiles
+) {
+
+  console.log(
+    "[FRONT] sendToDifyProxy 호출"
+  );
+
+  const form =
+    new FormData();
+
+  form.append(
+    "query",
+    query
+  );
+
+  currentFiles.forEach(
+    ({ file }) => {
+
+      console.log(
+        "[FRONT] 파일 추가:",
+        file.name
+      );
+
+      form.append(
+        "files",
+        file,
+        file.name
+      );
+
+  });
+
+  const res = await fetch(
+    "http://localhost:3000/dify/ask",
+    {
+      method: "POST",
+      body: form
+    }
+  );
+
+  console.log(
+    "[FRONT] response status:",
+    res.status
+  );
+
+  const raw =
+    await res.text();
+
+  console.log(
+    "[FRONT] raw:",
+    raw
+  );
+
+  if (!res.ok) {
+
+    throw new Error(raw);
+
+  }
+
+  return JSON.parse(raw);
+
+}
+
+/*
+────────────────────────────
+문의하기
+────────────────────────────
+*/
+async function handleSend() {
+
+  console.log(
+    "handleSend 시작"
+  );
+
+  const query =
+    queryInput.value.trim();
+
+  console.log(
+    "query:",
+    query
+  );
+
+  console.log(
+    "attachedFiles:",
+    attachedFiles
+  );
+
+  if (
+    !query &&
+    attachedFiles.length === 0
+  ) {
+
+    responseBox.textContent =
+      "문의 내용 또는 이미지를 입력하세요.";
+
+    return;
+
+  }
+
+  responseBox.textContent =
+    "Dify 분석 중...";
+
+  try {
+
+    const data =
+      await sendToDifyProxy(
+        query,
+        attachedFiles
+      );
+
+    console.log(
+      "Dify 응답:",
+      data
+    );
+
+    responseBox.textContent =
+      data.answer ||
+      JSON.stringify(data, null, 2);
+
+  }
+  catch (error) {
+
+    console.error(error);
+
+    responseBox.textContent =
+      "오류 발생:\n\n" +
+      error.message;
+
+  }
+
+}
+
+/*
+────────────────────────────
+버튼 클릭 이벤트 연결
+────────────────────────────
+*/
+document
+  .getElementById("sendBtn")
+  .addEventListener(
+    "click",
+    function (e) {
+
+      e.preventDefault();
+
+      console.log(
+        "문의하기 버튼 클릭 이벤트 실행"
+      );
+
+      handleSend();
+
+});
+
+/*
+────────────────────────────
+ENTER 전송 방지
+────────────────────────────
+*/
+window.addEventListener(
+  "keydown",
+  function (e) {
+
+    if (
+      e.key === "Enter" &&
+      e.target.tagName !== "TEXTAREA"
+    ) {
+
+      e.preventDefault();
+
+    }
+
+});
+
+</script>
+
+</body>
+</html>
